@@ -141,6 +141,7 @@
   .pb{display:inline-block;background:var(--fx-yellow);color:var(--fx-ink);font-weight:800;font-size:13px;
     padding:6px 13px;border-radius:999px;margin:0 0 14px;border:2px solid var(--fx-ink);
     box-shadow:0 3px 0 var(--fx-ink);transform:rotate(2deg);animation:cardIn .5s var(--pop);}
+  .pb.loss{background:#F7BFC1;transform:rotate(-2deg);}
   .hint{margin-top:14px;font-size:12px;color:#6a7a70;}
   .hint.arcade{animation:hintPulse 1.7s ease-in-out infinite;font-weight:700;color:var(--fx-green-deep);}
   @keyframes hintPulse{0%,100%{opacity:1}50%{opacity:.4}}
@@ -198,8 +199,10 @@
         <span class="keys"><span class="key">←</span><span class="key">→</span></span> eller
         <span class="keys"><span class="key">A</span><span class="key">D</span></span> · på mobil: dra med fingret.
       </p>
+      <div id="pingisResult" class="pb hidden"></div>
       <div id="bestLine" class="hint"></div>
       <button id="playBtn" class="btn">Spela</button>
+      <button id="pingisBtn" class="btn ghost">🏓 Pingisrummet</button>
       <div class="hint arcade">Liv = kaffe ☕ · Moms den 12:e väntar inte</div>
     </div>
   </div>
@@ -275,6 +278,7 @@ const el = {
   winTime:document.getElementById('winTime'), continueBtn:document.getElementById('continueBtn'),
   toStartBtn:document.getElementById('toStartBtn'), shareWinBtn:document.getElementById('shareWinBtn'),
   bestLine:document.getElementById('bestLine'),
+  pingisBtn:document.getElementById('pingisBtn'), pingisResult:document.getElementById('pingisResult'),
 };
 
 // ---------- Hjälpare ----------
@@ -288,7 +292,7 @@ const FONT_D='"Arial Rounded MT Bold","SF Pro Rounded",system-ui,Arial,sans-seri
 
 // ---------- Highscore (localStorage) ----------
 const BEST_KEY='fx_glas_best_v1';
-function defaultBest(){ return {v:1,bestScore:0,bestTime:0,bestCombo:0,bestYear:1,gamesPlayed:0,timesWon:0}; }
+function defaultBest(){ return {v:1,bestScore:0,bestTime:0,bestCombo:0,bestYear:1,gamesPlayed:0,timesWon:0,pingisWins:0,pingisBestOpp:null}; }
 let BEST=defaultBest();
 function loadBest(){
   try{ const raw=localStorage.getItem(BEST_KEY); if(!raw) return defaultBest();
@@ -307,9 +311,11 @@ function checkAndSaveBest(){
   return {scoreBeat,timeBeat,comboBeat,yearBeat, any:scoreBeat||timeBeat||comboBeat||yearBeat};
 }
 function syncStartBest(){
-  if(!BEST.gamesPlayed){ el.bestLine.textContent='Första försöket! Sätt ribban för kontoret. 🏁'; return; }
-  let t='Ditt bästa: '+nf(BEST.bestScore)+' kr · '+BEST.bestTime+'s överlevt';
+  if(!BEST.gamesPlayed && !BEST.pingisWins){ el.bestLine.textContent='Första försöket! Sätt ribban för kontoret. 🏁'; return; }
+  let t = BEST.gamesPlayed ? 'Ditt bästa: '+nf(BEST.bestScore)+' kr · '+BEST.bestTime+'s överlevt' : 'Ditt bästa:';
   if(BEST.bestYear>1){ t+=' · hela året klarat 🎉'; if(BEST.timesWon>1) t+=' ('+BEST.timesWon+' ggr)'; }
+  if(BEST.pingisWins>0){ t+=' · 🏓 '+BEST.pingisWins+(BEST.pingisWins===1?' vinst':' vinster');
+    if(BEST.pingisBestOpp!=null) t+=' (bäst 6–'+BEST.pingisBestOpp+')'; }
   el.bestLine.textContent=t;
 }
 
@@ -364,7 +370,7 @@ function reset(){
   G.deadlinesCleared=0; G.year=1; G.arcIndex=0;
   G.fallers=[]; G.shards=[]; G.floats=[];
   G.docTimer=0; G.glassTimer=rnd(0.8,1.6); G.powerTimer=rnd(10,15); G.bigGlassAt=20;
-  G.pingisTimer=rnd(18,26); G.pingis=null; G.champ=0; G.champGlow=0;
+  G.pingisTimer=rnd(9,14); G.pingis=null; G.champ=0; G.champGlow=0;
   G.nextDeadlineAt=26; G.deadlineInterval=30; G.deadline=null;
   G.auto=0; G.glow=0; G.shake=0; G.flash=0; G.invuln=0; G.danger=0;
   G.keyL=false; G.keyR=false; G.pointerX=null; G.usePointer=false;
@@ -509,6 +515,7 @@ function startGame(){
   el.start.classList.add('hidden'); el.gameover.classList.add('hidden');
   el.hud.classList.remove('hidden');
   hideBanner(); el.dlMini.classList.add('hidden'); el.champPill.classList.add('hidden');
+  el.pingisResult.classList.add('hidden');
   BEST.gamesPlayed=(BEST.gamesPlayed||0)+1; saveBest();
   setAmbientTension('calm');
   syncHUD(); syncYearRail();
@@ -581,7 +588,7 @@ function copyResult(btn,won){
 function showStart(){
   reset();
   el.gameover.classList.add('hidden'); el.win.classList.add('hidden'); el.hud.classList.add('hidden');
-  el.yearRail.classList.add('hidden'); hideBanner();
+  el.yearRail.classList.add('hidden'); el.pingisResult.classList.add('hidden'); hideBanner();
   el.start.classList.remove('hidden');
   setAmbientTension('calm');
   syncStartBest();
@@ -655,7 +662,7 @@ function spawnPower(){
 function spawnPingis(){
   const w=clamp(Math.min(W,H)*0.052,30,50);
   G.fallers.push({kind:'pingis', x:rnd(w,W-w), y:-w, w:w*1.18, h:w*1.34,
-    vx:rnd(-18,18), vy:rnd(140,180)*(H/740), rot:0, vrot:0});
+    vx:rnd(-14,14), vy:rnd(115,150)*(H/740), rot:0, vrot:0});   // faller lugnt – ska gå att hinna
 }
 function spawnBigGlass(){
   const w=clamp(W*0.34,220,460), h=w*0.66;
@@ -769,17 +776,28 @@ function confettiBurst(){
 }
 
 // ---------- Pingisrummet (minispel) ----------
-function startPingis(){
+// mode 'bonus': 3 bollar mitt i huvudspelet, alla måste räddas → champ-bonus.
+// mode 'match': fristående från menyn – först till 6 mot kollegan, bäst av 11 bollar.
+function startPingis(mode){
   G.state='pingis';
-  G.pingis={phase:'intro', timer:1.5, ball:null, hits:0, ballIndex:0, paddleX:W/2, between:0, serveAnim:0};
-  showBanner('🏓 PINGISRUMMET!\nRädda 3 bollar',1400,'gold');
+  G.pingis={mode:mode||'bonus', phase:'intro', timer:1.5, ball:null, hits:0, ballIndex:0,
+    paddleX:W/2, between:0, serveAnim:0, playerScore:0, oppScore:0, missT:0};
+  if(G.pingis.mode==='match') showBanner('🏓 MATCH MOT KOLLEGAN!\nFörst till 6 · bäst av 11',1800,'gold');
+  else showBanner('🏓 PINGISRUMMET!\nRädda 3 bollar',1400,'gold');
   SFX.power(); setAmbientTension('tense');
+}
+function startPingisMatch(){
+  el.start.classList.add('hidden'); el.pingisResult.classList.add('hidden'); hideBanner();
+  startPingis('match');
 }
 function servePingisBall(){
   const P=G.pingis; P.ballIndex++;
-  P.ball={z:1, x:rnd(-0.5,0.5), targetX:rnd(-0.85,0.85),
-    curve:P.ballIndex>=2?rnd(-0.6,0.6):0,            // boll 2-3 skruvar
-    speed:0.5+P.ballIndex*0.15, returning:false, missed:false};
+  const match=P.mode==='match';
+  const speed = match ? 0.5+P.ballIndex*0.05          // 11 bollar: mjukare ramp, boll 11 ≈ boll 3-4 i bonusläget
+                      : 0.5+P.ballIndex*0.15;
+  const curve = match ? (P.ballIndex>=3 ? rnd(-1,1)*(0.3+P.ballIndex*0.03) : 0)
+                      : (P.ballIndex>=2 ? rnd(-0.6,0.6) : 0);
+  P.ball={z:1, x:rnd(-0.5,0.5), targetX:rnd(-0.85,0.85), curve, speed, returning:false, missed:false};
   P.serveAnim=0.35; SFX.serve();
 }
 // z=1 långt bort vid kollegan, z=0 vid skärmen/racketen
@@ -801,20 +819,30 @@ function updatePingis(dt){
   P.paddleX=clamp(P.paddleX, W*0.08, W-W*0.08);
   if(P.serveAnim>0) P.serveAnim-=dt;
 
+  const match=P.mode==='match';
   if(P.phase==='intro'){ P.timer-=dt; if(P.timer<=0){ P.phase='play'; servePingisBall(); } return; }
   if(P.phase==='out'){
     if(P.ball && P.ball.missed) P.ball.z-=P.ball.speed*dt;   // bollen far förbi kameran
-    P.timer-=dt; if(P.timer<=0) endPingis(P.hits>=3);
+    P.timer-=dt; if(P.timer<=0) endPingis(match ? P.playerScore>=6 : P.hits>=3);
     return;
   }
   // phase 'play'
   if(!P.ball){ P.between-=dt; if(P.between<=0) servePingisBall(); return; }
   const b=P.ball;
-  if(b.returning){
+  if(b.missed){
+    // matchläge: missad boll susar förbi, sedan servas nästa
+    b.z-=b.speed*dt; P.missT-=dt;
+    if(P.missT<=0){ P.ball=null; P.between=0.4; }
+  } else if(b.returning){
     b.z+=b.speed*2.1*dt;
     if(b.z>=1.05){
-      if(P.hits>=3){ P.phase='out'; P.timer=0.5; P.ball=null; }
-      else { P.ball=null; P.between=0.5; }
+      if(match){
+        if(P.playerScore>=6){ P.phase='out'; P.timer=0.6; P.ball=null; }
+        else { P.ball=null; P.between=0.5; }
+      } else {
+        if(P.hits>=3){ P.phase='out'; P.timer=0.5; P.ball=null; }
+        else { P.ball=null; P.between=0.5; }
+      }
     }
   } else {
     b.z-=b.speed*dt;
@@ -822,18 +850,56 @@ function updatePingis(dt){
       const nx=pingisBallNx(b), pr=pingisProj(nx,0.08), r=5+(1-0.08)*24;
       const reach=(W>600?52:44)+r*0.7;
       if(Math.abs(pr.x-P.paddleX)<reach){
-        P.hits++; b.returning=true; b.x=nx; b.targetX=rnd(-0.7,0.7); b.curve=0; b.z=0.08;
+        b.returning=true; b.x=nx; b.targetX=rnd(-0.7,0.7); b.curve=0; b.z=0.08;
         SFX.pong(); shake(2); burst(P.paddleX, H*0.84, '#FFF8E8', 8);
-        addFloat(P.paddleX, H*0.78, ['PANG!','SNYGGT!','MATCHBOLL!'][Math.min(P.hits-1,2)], '#FFCE3A', true);
+        if(match){
+          P.playerScore++;
+          addFloat(P.paddleX, H*0.78, P.playerScore>=6?'MATCHEN HEM!':'PANG!', '#FFCE3A', true);
+        } else {
+          P.hits++;
+          addFloat(P.paddleX, H*0.78, ['PANG!','SNYGGT!','MATCHBOLL!'][Math.min(P.hits-1,2)], '#FFCE3A', true);
+        }
       } else {
-        b.missed=true; P.phase='out'; P.timer=0.9;
-        SFX.fail(); addFloat(W/2, H*0.5, 'Utanför!', '#E5484D', true);
+        b.missed=true;
+        if(match){
+          P.oppScore++;
+          SFX.bad(); addFloat(W/2, H*0.5, 'Kollegan: '+P.oppScore, '#E5484D', true);
+          if(P.oppScore>=6){ P.phase='out'; P.timer=1.0; }
+          else P.missT=0.6;
+        } else {
+          P.phase='out'; P.timer=0.9;
+          SFX.fail(); addFloat(W/2, H*0.5, 'Utanför!', '#E5484D', true);
+        }
       }
     }
   }
 }
 function endPingis(won){
-  G.pingis=null; G.state='playing';
+  const P=G.pingis, match=P&&P.mode==='match';
+  const ps=P?P.playerScore:0, os=P?P.oppScore:0;
+  G.pingis=null;
+  if(match){
+    // fristående match: tillbaka till startmenyn med resultat
+    G.state='start'; hideBanner();
+    if(won){
+      BEST.pingisWins=(BEST.pingisWins||0)+1;
+      if(BEST.pingisBestOpp==null || os<BEST.pingisBestOpp) BEST.pingisBestOpp=os;
+      saveBest();
+      confettiBurst(); SFX.win();
+      el.pingisResult.textContent='🏆 Du vann '+ps+'–'+os+'! Kollegan kräver revansch.';
+      el.pingisResult.classList.remove('loss');
+    } else {
+      SFX.fail();
+      el.pingisResult.textContent='🏓 Kollegan vann '+os+'–'+ps+'. Revansch?';
+      el.pingisResult.classList.add('loss');
+    }
+    el.pingisResult.classList.remove('hidden');
+    el.start.classList.remove('hidden');
+    syncStartBest();
+    setAmbientTension('calm');
+    return;
+  }
+  G.state='playing';
   if(won){
     G.champ=12; el.champPill.classList.remove('hidden');
     confettiBurst(); SFX.win();
@@ -863,12 +929,27 @@ function drawPingis(){
   ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillText('PINGISRUMMET', W/2+2, H*0.085+2);
   ctx.fillStyle='#FFCE3A'; ctx.fillText('PINGISRUMMET', W/2, H*0.085);
   ctx.font='700 '+clamp(W*0.016,11,14)+'px '+FONT_D;
-  ctx.fillStyle='rgba(255,255,255,.7)'; ctx.fillText('Fortnox interna mästerskap · bäst av 3', W/2, H*0.085+sfs);
-  // bollräknare
-  for(let i=0;i<3;i++){ const cx=W/2+(i-1)*36, cy=H*0.19;
-    ctx.beginPath(); ctx.arc(cx,cy,11,0,6.28);
-    ctx.fillStyle= i<P.hits?'#FFCE3A':'rgba(255,255,255,.18)'; ctx.fill();
-    ctx.lineWidth=2.5; ctx.strokeStyle= i<P.hits?INK:'rgba(255,255,255,.55)'; ctx.stroke(); }
+  ctx.fillStyle='rgba(255,255,255,.7)';
+  ctx.fillText(P.mode==='match' ? 'Fortnox interna mästerskap · först till 6 · bäst av 11'
+                                : 'Fortnox interna mästerskap · bäst av 3', W/2, H*0.085+sfs);
+  if(P.mode==='match'){
+    // resultattavla: DU 3 – 2 KOLLEGAN
+    const sTxt=P.playerScore+' – '+P.oppScore, sy=H*0.20;
+    ctx.font='900 '+clamp(W*0.045,26,44)+'px '+FONT_D;
+    const halfTxt=ctx.measureText(sTxt).width/2;
+    ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillText(sTxt, W/2+2, sy+2);
+    ctx.fillStyle='#fff'; ctx.fillText(sTxt, W/2, sy);
+    ctx.font='800 '+clamp(W*0.014,10,13)+'px '+FONT_D;
+    ctx.fillStyle='rgba(255,206,58,.9)'; ctx.textAlign='right'; ctx.fillText('DU', W/2-halfTxt-14, sy);
+    ctx.fillStyle='rgba(255,255,255,.75)'; ctx.textAlign='left'; ctx.fillText('KOLLEGAN', W/2+halfTxt+14, sy);
+    ctx.textAlign='center';
+  } else {
+    // bollräknare (bonusläge: 3 bollar)
+    for(let i=0;i<3;i++){ const cx=W/2+(i-1)*36, cy=H*0.19;
+      ctx.beginPath(); ctx.arc(cx,cy,11,0,6.28);
+      ctx.fillStyle= i<P.hits?'#FFCE3A':'rgba(255,255,255,.18)'; ctx.fill();
+      ctx.lineWidth=2.5; ctx.strokeStyle= i<P.hits?INK:'rgba(255,255,255,.55)'; ctx.stroke(); }
+  }
   // bordet (trapets i perspektiv)
   const fy=H*0.42, ny=H*0.80, fh=W*0.14, nh=W*0.42;
   ctx.beginPath(); ctx.moveTo(W/2-fh,fy); ctx.lineTo(W/2+fh,fy); ctx.lineTo(W/2+nh,ny); ctx.lineTo(W/2-nh,ny); ctx.closePath();
@@ -991,7 +1072,7 @@ function update(dt){
     if(G.glassTimer<=0){ spawnGlass(); G.glassTimer=glassInt*rnd(0.7,1.3); }
     if(G.powerTimer<=0){ if(G.auto<=0) spawnPower(); G.powerTimer=rnd(15,22); }
     G.pingisTimer-=dt;
-    if(G.pingisTimer<=0){ if(G.auto<=0 && !G.deadline && G.champ<=0) spawnPingis(); G.pingisTimer=rnd(30,45); }
+    if(G.pingisTimer<=0){ if(G.auto<=0 && !G.deadline && G.champ<=0) spawnPingis(); G.pingisTimer=rnd(16,26); }
 
     // ---- pingis-champ: nedräkning + HUD-pill ----
     if(G.champ>0){ G.champ-=dt;
@@ -1380,6 +1461,7 @@ function kd(e){
   if(k==='arrowright'||k==='d'){ G.keyR=true; G.usePointer=false; e.preventDefault(); }
   if((k===' '||k==='enter')){ if(G.state==='start'){initAudio();startGame();} else if(G.state==='gameover'){startGame();} e.preventDefault(); }
   if(k==='m'){ setMute(!muted); }
+  if(k==='p' && G.state==='start'){ initAudio(); startPingisMatch(); }
 }
 function ku(e){ const k=e.key.toLowerCase();
   if(k==='arrowleft'||k==='a') G.keyL=false; if(k==='arrowright'||k==='d') G.keyR=false; }
@@ -1393,6 +1475,7 @@ cv.addEventListener('pointermove',pointer); cv.addEventListener('pointerdown',po
 cv.addEventListener('touchmove',e=>{pointer(e);e.preventDefault();},{passive:false});
 cv.addEventListener('touchstart',e=>{pointer(e);},{passive:true});
 el.playBtn.addEventListener('click',()=>{initAudio();startGame();});
+el.pingisBtn.addEventListener('click',()=>{initAudio();startPingisMatch();});
 el.againBtn.addEventListener('click',()=>{initAudio();startGame();});
 el.continueBtn.addEventListener('click',continueNewYear);
 el.toStartBtn.addEventListener('click',showStart);
