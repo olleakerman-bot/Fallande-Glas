@@ -52,6 +52,9 @@
     padding:7px 13px;font-family:var(--font-display);font-size:clamp(14px,2.6vw,19px);
     box-shadow:0 3px 0 var(--fx-ink);transform:rotate(-2deg);transform-origin:center;}
   #combo.pop{animation:pop .3s var(--pop);}
+  #champPill{background:linear-gradient(180deg,#FFD75C,#F2B916);color:var(--fx-ink);border:2.5px solid var(--fx-ink);
+    border-radius:14px;padding:7px 12px;font-family:var(--font-display);font-size:clamp(13px,2.4vw,17px);
+    font-weight:800;box-shadow:0 3px 0 var(--fx-ink);transform:rotate(2deg);animation:cardIn .4s var(--pop);}
   @keyframes pop{0%{transform:scale(1) rotate(-2deg)}45%{transform:scale(1.32) rotate(3deg)}100%{transform:scale(1) rotate(-2deg)}}
   #mute{pointer-events:auto;border:2.5px solid var(--fx-ink);cursor:pointer;background:#fff;
     border-radius:50%;width:44px;height:44px;font-size:18px;box-shadow:0 3px 0 var(--fx-ink);
@@ -173,6 +176,7 @@
     <div class="hud-right">
       <div class="stat"><span class="lbl">Bokfört</span><b id="booked">0</b></div>
       <div class="stat"><span class="lbl">Kassa</span><b id="kassa">0 kr</b></div>
+      <div id="champPill" class="hidden">🏓 x2</div>
       <div id="combo" class="combo hidden">x1</div>
       <button id="mute" class="pointer" title="Ljud av/på">🔊</button>
     </div>
@@ -256,7 +260,7 @@ const el = {
   combo:document.getElementById('combo'), mute:document.getElementById('mute'),
   banner:document.getElementById('banner'),
   yearRail:document.getElementById('yearRail'), yearTag:document.getElementById('yearTag'),
-  yearDots:document.getElementById('yearDots'),
+  yearDots:document.getElementById('yearDots'), champPill:document.getElementById('champPill'),
   dlMini:document.getElementById('deadlineMini'), dlLabel:document.getElementById('dlLabel'),
   dlCount:document.getElementById('dlCount'), dlFill:document.getElementById('dlFill'),
   start:document.getElementById('start'), gameover:document.getElementById('gameover'),
@@ -355,11 +359,12 @@ let house=null;
 let ground=null;
 
 function reset(){
-  G.state='start';       // start | playing | won | gameover  (deadline körs som delläge i playing)
+  G.state='start';       // start | playing | pingis | won | gameover  (deadline körs som delläge i playing)
   G.t=0; G.coffee=3; G.score=0; G.booked=0; G.combo=0; G.bestCombo=0; G.mult=1;
   G.deadlinesCleared=0; G.year=1; G.arcIndex=0;
   G.fallers=[]; G.shards=[]; G.floats=[];
   G.docTimer=0; G.glassTimer=rnd(0.8,1.6); G.powerTimer=rnd(10,15); G.bigGlassAt=20;
+  G.pingisTimer=rnd(18,26); G.pingis=null; G.champ=0; G.champGlow=0;
   G.nextDeadlineAt=26; G.deadlineInterval=30; G.deadline=null;
   G.auto=0; G.glow=0; G.shake=0; G.flash=0; G.invuln=0; G.danger=0;
   G.keyL=false; G.keyR=false; G.pointerX=null; G.usePointer=false;
@@ -487,6 +492,8 @@ const SFX={
   win(){ [659,988].forEach((f,i)=>setTimeout(()=>tone(f,0.2,'triangle',0.35),i*120)); },
   fail(){ tone(330,0.4,'sawtooth',0.4,120); },
   warn(){ tone(440,0.12,'square',0.25); },
+  pong(){ tone(680,0.06,'square',0.4,900); noise(0.04,0.3,3,3800); },
+  serve(){ tone(420,0.09,'triangle',0.25,600); },
   finale(){ [523,659,784,1047,1318,1568].forEach((f,i)=>setTimeout(()=>tone(f,0.22,'triangle',0.32),i*90));
     setTimeout(()=>{ tone(784,0.6,'triangle',0.22); tone(988,0.6,'triangle',0.18); tone(1318,0.6,'triangle',0.16); },620); },
 };
@@ -501,7 +508,7 @@ function startGame(){
   G.player.w=G.player.h*0.66;
   el.start.classList.add('hidden'); el.gameover.classList.add('hidden');
   el.hud.classList.remove('hidden');
-  hideBanner(); el.dlMini.classList.add('hidden');
+  hideBanner(); el.dlMini.classList.add('hidden'); el.champPill.classList.add('hidden');
   BEST.gamesPlayed=(BEST.gamesPlayed||0)+1; saveBest();
   setAmbientTension('calm');
   syncHUD(); syncYearRail();
@@ -585,7 +592,7 @@ let bannerTimer=0;
 function showBanner(text,ms,cls){
   el.banner.textContent=text;
   el.banner.className='show '+(cls||'');
-  bannerTimer=ms||0; // 0 = permanent tills nästa
+  bannerTimer=(ms||0)/1000; // ms → sekunder (nedräkningen sker i dt-sekunder); 0 = permanent tills nästa
 }
 function hideBanner(){ el.banner.className=''; bannerTimer=0; }
 
@@ -644,6 +651,11 @@ function spawnGlass(){
 function spawnPower(){
   const w=clamp(Math.min(W,H)*0.06,36,58);
   G.fallers.push({kind:'power', x:rnd(w,W-w), y:-w, w, h:w, vx:rnd(-18,18), vy:rnd(150,200)*(H/740), rot:0, vrot:0});
+}
+function spawnPingis(){
+  const w=clamp(Math.min(W,H)*0.052,30,50);
+  G.fallers.push({kind:'pingis', x:rnd(w,W-w), y:-w, w:w*1.18, h:w*1.34,
+    vx:rnd(-18,18), vy:rnd(140,180)*(H/740), rot:0, vrot:0});
 }
 function spawnBigGlass(){
   const w=clamp(W*0.34,220,460), h=w*0.66;
@@ -722,8 +734,10 @@ function catchGood(f){
   G.combo++; if(G.combo>G.bestCombo) G.bestCombo=G.combo;
   const multCap=Math.min(8,5+Math.floor((G.year-1)/2));
   G.mult=Math.min(multCap,1+Math.floor(G.combo/4));
-  const gain=Math.round(f.value*G.mult*yearScoreMult()); G.score+=gain; G.booked++;
-  addFloat(f.x,f.y,'+'+nf(gain)+' kr', f.sub==='intakt'?'#B8860B':'#0B6E3B');
+  let gain=Math.round(f.value*G.mult*yearScoreMult());
+  if(G.champ>0) gain*=2;                                   // pingis-champ: dubbla poäng
+  G.score+=gain; G.booked++;
+  addFloat(f.x,f.y,'+'+nf(gain)+' kr'+(G.champ>0?' 🏓':''), f.sub==='intakt'?'#B8860B':'#0B6E3B');
   if(f.sub==='intakt') SFX.coin(); else SFX.catch();
   burst(f.x,f.y, f.sub==='intakt'?'#FFCE3A':'#3FC57A', 9);
   const cl=comboLabelFor(G.combo); if(cl) addFloat(G.player.x, groundY-G.player.h-26, cl, '#1FA463', true);
@@ -752,6 +766,157 @@ function confettiBurst(){
   const colors=['#1FA463','#FFCE3A','#3FC57A','#E5484D','#ffffff'];
   const pts=[[W*0.2,H*0.3],[W*0.5,H*0.22],[W*0.8,H*0.3],[W*0.35,H*0.45],[W*0.65,H*0.45]];
   pts.forEach((pt,i)=>burst(pt[0],pt[1],colors[i%colors.length],14));
+}
+
+// ---------- Pingisrummet (minispel) ----------
+function startPingis(){
+  G.state='pingis';
+  G.pingis={phase:'intro', timer:1.5, ball:null, hits:0, ballIndex:0, paddleX:W/2, between:0, serveAnim:0};
+  showBanner('🏓 PINGISRUMMET!\nRädda 3 bollar',1400,'gold');
+  SFX.power(); setAmbientTension('tense');
+}
+function servePingisBall(){
+  const P=G.pingis; P.ballIndex++;
+  P.ball={z:1, x:rnd(-0.5,0.5), targetX:rnd(-0.85,0.85),
+    curve:P.ballIndex>=2?rnd(-0.6,0.6):0,            // boll 2-3 skruvar
+    speed:0.5+P.ballIndex*0.15, returning:false, missed:false};
+  P.serveAnim=0.35; SFX.serve();
+}
+// z=1 långt bort vid kollegan, z=0 vid skärmen/racketen
+function pingisProj(nx,z){
+  const t=clamp(1-z,0,1), e=t*t*(3-2*t);
+  const y=H*0.42+(H*0.80-H*0.42)*e;
+  const half=W*0.14+(W*0.42-W*0.14)*e;
+  return {x:W/2+nx*half, y, half};
+}
+function pingisBallNx(b){
+  const t=clamp(1-b.z,0,1);
+  return b.x+(b.targetX-b.x)*t+(b.curve||0)*Math.sin(t*Math.PI);
+}
+function updatePingis(dt){
+  const P=G.pingis; if(!P) return;
+  // racketen följer pekare eller pilar
+  if(G.usePointer && G.pointerX!=null) P.paddleX+=(G.pointerX-P.paddleX)*Math.min(1,dt*16);
+  else { const dir=(G.keyR?1:0)-(G.keyL?1:0); P.paddleX+=dir*clamp(W*0.95,420,950)*dt; }
+  P.paddleX=clamp(P.paddleX, W*0.08, W-W*0.08);
+  if(P.serveAnim>0) P.serveAnim-=dt;
+
+  if(P.phase==='intro'){ P.timer-=dt; if(P.timer<=0){ P.phase='play'; servePingisBall(); } return; }
+  if(P.phase==='out'){
+    if(P.ball && P.ball.missed) P.ball.z-=P.ball.speed*dt;   // bollen far förbi kameran
+    P.timer-=dt; if(P.timer<=0) endPingis(P.hits>=3);
+    return;
+  }
+  // phase 'play'
+  if(!P.ball){ P.between-=dt; if(P.between<=0) servePingisBall(); return; }
+  const b=P.ball;
+  if(b.returning){
+    b.z+=b.speed*2.1*dt;
+    if(b.z>=1.05){
+      if(P.hits>=3){ P.phase='out'; P.timer=0.5; P.ball=null; }
+      else { P.ball=null; P.between=0.5; }
+    }
+  } else {
+    b.z-=b.speed*dt;
+    if(b.z<=0.08){
+      const nx=pingisBallNx(b), pr=pingisProj(nx,0.08), r=5+(1-0.08)*24;
+      const reach=(W>600?52:44)+r*0.7;
+      if(Math.abs(pr.x-P.paddleX)<reach){
+        P.hits++; b.returning=true; b.x=nx; b.targetX=rnd(-0.7,0.7); b.curve=0; b.z=0.08;
+        SFX.pong(); shake(2); burst(P.paddleX, H*0.84, '#FFF8E8', 8);
+        addFloat(P.paddleX, H*0.78, ['PANG!','SNYGGT!','MATCHBOLL!'][Math.min(P.hits-1,2)], '#FFCE3A', true);
+      } else {
+        b.missed=true; P.phase='out'; P.timer=0.9;
+        SFX.fail(); addFloat(W/2, H*0.5, 'Utanför!', '#E5484D', true);
+      }
+    }
+  }
+}
+function endPingis(won){
+  G.pingis=null; G.state='playing';
+  if(won){
+    G.champ=12; el.champPill.classList.remove('hidden');
+    confettiBurst(); SFX.win();
+    showBanner('🏓 PINGIS-CHAMP!\nx2 poäng i 12 sekunder',2200,'gold');
+    addFloat(G.player.x, groundY-G.player.h-30,'CHAMP!','#FFCE3A',true);
+  } else {
+    showBanner('Utanför!\nTillbaka till kvittona…',1600,'danger');
+  }
+  setAmbientTension(G.deadline&&G.deadline.phase==='active'?'tense':'calm');
+}
+function drawPingis(){
+  const P=G.pingis; if(!P) return;
+  // rummet: mörk vägg + trägolv
+  const wall=ctx.createLinearGradient(0,0,0,H*0.6);
+  wall.addColorStop(0,'#10301F'); wall.addColorStop(1,'#1B4A30');
+  ctx.fillStyle=wall; ctx.fillRect(-20,-20,W+40,H*0.6+20);
+  const floor=ctx.createLinearGradient(0,H*0.55,0,H);
+  floor.addColorStop(0,'#8A6B4A'); floor.addColorStop(1,'#5E4630');
+  ctx.fillStyle=floor; ctx.fillRect(-20,H*0.55,W+40,H*0.45+20);
+  ctx.strokeStyle='rgba(21,36,27,.25)'; ctx.lineWidth=2;
+  for(let i=1;i<7;i++){ const t=i/7, y=H*0.55+(H*0.45)*t*t;
+    ctx.beginPath(); ctx.moveTo(-20,y); ctx.lineTo(W+20,y); ctx.stroke(); }
+  // skylt
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const sfs=clamp(W*0.035,18,30);
+  ctx.font='800 '+sfs+'px '+FONT_D;
+  ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillText('PINGISRUMMET', W/2+2, H*0.085+2);
+  ctx.fillStyle='#FFCE3A'; ctx.fillText('PINGISRUMMET', W/2, H*0.085);
+  ctx.font='700 '+clamp(W*0.016,11,14)+'px '+FONT_D;
+  ctx.fillStyle='rgba(255,255,255,.7)'; ctx.fillText('Fortnox interna mästerskap · bäst av 3', W/2, H*0.085+sfs);
+  // bollräknare
+  for(let i=0;i<3;i++){ const cx=W/2+(i-1)*36, cy=H*0.19;
+    ctx.beginPath(); ctx.arc(cx,cy,11,0,6.28);
+    ctx.fillStyle= i<P.hits?'#FFCE3A':'rgba(255,255,255,.18)'; ctx.fill();
+    ctx.lineWidth=2.5; ctx.strokeStyle= i<P.hits?INK:'rgba(255,255,255,.55)'; ctx.stroke(); }
+  // bordet (trapets i perspektiv)
+  const fy=H*0.42, ny=H*0.80, fh=W*0.14, nh=W*0.42;
+  ctx.beginPath(); ctx.moveTo(W/2-fh,fy); ctx.lineTo(W/2+fh,fy); ctx.lineTo(W/2+nh,ny); ctx.lineTo(W/2-nh,ny); ctx.closePath();
+  ctx.fillStyle='#1E8F58'; ctx.fill();
+  ctx.strokeStyle=INK; ctx.lineWidth=4; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.moveTo(W/2,fy+4); ctx.lineTo(W/2,ny-4); ctx.stroke();
+  ctx.fillStyle='#14713F'; ctx.fillRect(W/2-nh,ny,nh*2,H*0.02);
+  ctx.strokeStyle=INK; ctx.lineWidth=3; ctx.strokeRect(W/2-nh,ny,nh*2,H*0.02);
+  // nätet vid mitten
+  const np=pingisProj(0,0.5), nH=H*0.05;
+  ctx.fillStyle='rgba(255,255,255,.3)'; ctx.fillRect(np.x-np.half,np.y-nH,np.half*2,nH);
+  ctx.strokeStyle=INK; ctx.lineWidth=2.5; ctx.strokeRect(np.x-np.half,np.y-nH,np.half*2,nH);
+  ctx.strokeStyle='rgba(255,255,255,.45)'; ctx.lineWidth=1;
+  for(let i=1;i<12;i++){ const lx=np.x-np.half+np.half*2*i/12;
+    ctx.beginPath(); ctx.moveTo(lx,np.y-nH); ctx.lineTo(lx,np.y); ctx.stroke(); }
+  // kollegan som servar
+  const oh=H*0.085, ox=W/2+fh*0.55, oy=fy-4;
+  ctx.fillStyle='#1FA463'; roundRect(ox-oh*0.32,oy-oh*0.85,oh*0.64,oh*0.6,7); ctx.fill();
+  ctx.strokeStyle=INK; ctx.lineWidth=2; roundRect(ox-oh*0.32,oy-oh*0.85,oh*0.64,oh*0.6,7); ctx.stroke();
+  ctx.fillStyle='#F2C9A0'; ctx.beginPath(); ctx.arc(ox,oy-oh*0.95,oh*0.26,0,6.28); ctx.fill();
+  ctx.strokeStyle=INK; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(ox,oy-oh*0.95,oh*0.26,0,6.28); ctx.stroke();
+  ctx.fillStyle=INK; ctx.beginPath(); ctx.arc(ox-3,oy-oh*0.98,1.6,0,6.28); ctx.arc(ox+3,oy-oh*0.98,1.6,0,6.28); ctx.fill();
+  const raise=P.serveAnim>0?1:0.3, rx=ox+oh*0.42, ry=oy-oh*(0.6+0.5*raise);
+  ctx.fillStyle='#D64545'; ctx.beginPath(); ctx.ellipse(rx,ry,oh*0.17,oh*0.21,0.4,0,6.28); ctx.fill();
+  ctx.strokeStyle=INK; ctx.lineWidth=2; ctx.stroke();
+  // bollen + skugga på bordet
+  if(P.ball){ const b=P.ball, nx=pingisBallNx(b);
+    const zc=Math.max(b.z,0), pr=pingisProj(nx,zc);
+    const t=1-clamp(b.z,0,1);
+    const r=5+(1-Math.max(b.z,-0.3))*24;
+    const arc=Math.abs(Math.sin(t*Math.PI*2))*H*0.05*(0.35+clamp(b.z,0,1)*0.65);
+    let by=pr.y-arc-r*0.8;
+    if(b.z<0) by+=(-b.z)*H*1.2;                       // missad boll faller förbi
+    ctx.fillStyle='rgba(21,36,27,.25)'; ctx.beginPath(); ctx.ellipse(pr.x,pr.y,r*0.9,r*0.3,0,0,6.28); ctx.fill();
+    ctx.fillStyle='#FFF8E8'; ctx.beginPath(); ctx.arc(pr.x,by,r,0,6.28); ctx.fill();
+    ctx.strokeStyle=INK; ctx.lineWidth=Math.max(1.5,r*0.12); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.8)'; ctx.beginPath(); ctx.arc(pr.x-r*0.3,by-r*0.3,r*0.3,0,6.28); ctx.fill();
+  }
+  // spelarens racket
+  const px=P.paddleX, py=H*0.87, prW=W>600?46:38;
+  ctx.save(); ctx.translate(px,py); ctx.rotate(-0.15);
+  ctx.fillStyle='#C9A06A'; roundRect(-8,H*0.03,16,H*0.10,7); ctx.fill();
+  ctx.strokeStyle=INK; ctx.lineWidth=2.5; roundRect(-8,H*0.03,16,H*0.10,7); ctx.stroke();
+  ctx.fillStyle='#D64545'; ctx.beginPath(); ctx.ellipse(0,-H*0.015,prW,prW*1.18,0,0,6.28); ctx.fill();
+  ctx.strokeStyle=INK; ctx.lineWidth=3; ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.25)'; ctx.beginPath(); ctx.ellipse(-prW*0.28,-H*0.03,prW*0.3,prW*0.4,0,0,6.28); ctx.fill();
+  ctx.restore();
 }
 
 // ---------- Spelaranimation ----------
@@ -794,7 +959,10 @@ function update(dt){
   G.flash=Math.max(0,G.flash-dt*1.6);
   const glowTarget=G.auto>0?1:0; G.glow+=(glowTarget-G.glow)*Math.min(1,dt*6);
   const dangerTarget=(G.state==='playing' && G.coffee===1)?1:0; G.danger+=(dangerTarget-G.danger)*Math.min(1,dt*4);
+  const champTarget=(G.state==='playing' && G.champ>0)?1:0; G.champGlow+=(champTarget-G.champGlow)*Math.min(1,dt*6);
   if(bannerTimer>0){ bannerTimer-=dt; if(bannerTimer<=0) hideBanner(); }
+
+  if(G.state==='pingis'){ updatePingis(dt); }
 
   if(G.state==='playing'){
     G.t+=dt; if(G.invuln>0) G.invuln-=dt;
@@ -822,6 +990,13 @@ function update(dt){
     let glassInt=clamp(2.7-G.t*0.028, 0.95-prestigeL()*0.05, 2.7);
     if(G.glassTimer<=0){ spawnGlass(); G.glassTimer=glassInt*rnd(0.7,1.3); }
     if(G.powerTimer<=0){ if(G.auto<=0) spawnPower(); G.powerTimer=rnd(15,22); }
+    G.pingisTimer-=dt;
+    if(G.pingisTimer<=0){ if(G.auto<=0 && !G.deadline && G.champ<=0) spawnPingis(); G.pingisTimer=rnd(30,45); }
+
+    // ---- pingis-champ: nedräkning + HUD-pill ----
+    if(G.champ>0){ G.champ-=dt;
+      if(G.champ<=0){ G.champ=0; el.champPill.classList.add('hidden'); }
+      else el.champPill.textContent='🏓 x2 · '+Math.ceil(G.champ)+'s'; }
 
     // ---- deadlines ----
     if(!G.deadline && G.auto<=0 && G.t>=G.nextDeadlineAt) startDeadline();
@@ -831,9 +1006,10 @@ function update(dt){
     if(!G.deadline && G.t>=G.bigGlassAt){ spawnBigGlass(); G.bigGlassAt=G.t+rnd(24,34); }
   }
 
-  // ---- fallande objekt ----
+  // ---- fallande objekt (fryses medan man är i pingisrummet) ----
   const p=G.player;
   const catchBox = p ? {l:p.x-p.w*0.62, r:p.x+p.w*0.62, t:groundY-p.h, b:groundY-p.h*0.5} : null;
+  if(G.state!=='pingis')
   for(let i=G.fallers.length-1;i>=0;i--){
     const f=G.fallers[i];
     if(f.kind==='good'||f.kind==='bad'){
@@ -860,6 +1036,8 @@ function update(dt){
       if(fr>catchBox.l && fl<catchBox.r && fb>catchBox.t && ftp<catchBox.b){
         if(f.kind==='good'){ catchGood(f); G.fallers.splice(i,1); continue; }
         if(f.kind==='power'){ catchPower(f); G.fallers.splice(i,1); continue; }
+        if(f.kind==='pingis'){ G.player.catchT=0.28; burst(f.x,f.y,'#FFCE3A',10);
+          G.fallers.splice(i,1); startPingis(); continue; }
         if(f.kind==='bad'){ addFloat(f.x,f.y, BAD[f.sub].label+'!', '#E5484D');
           SFX.bad(); damage(); G.fallers.splice(i,1); continue; }
         if(f.kind==='glass'){ shatter(f.x,groundY-p.h*0.6, f.big?34:16, f.big?1.5:1);
@@ -901,9 +1079,13 @@ function render(){
   ctx.clearRect(0,0,W,H);
   let sx=0,sy=0; if(G.shake>0){ sx=rnd(-G.shake,G.shake); sy=rnd(-G.shake,G.shake); }
   ctx.save(); ctx.translate(sx,sy);
-    drawSky(); drawHouse(); drawGround(); drawGroundProps();
-    for(const f of G.fallers) drawFaller(f);
-    if(G.player && G.state!=='start') drawPlayer();
+    if(G.state==='pingis'){
+      drawPingis();
+    } else {
+      drawSky(); drawHouse(); drawGround(); drawGroundProps();
+      for(const f of G.fallers) drawFaller(f);
+      if(G.player && G.state!=='start') drawPlayer();
+    }
     drawShards();
     drawFloats();
   ctx.restore();
@@ -914,6 +1096,8 @@ function render(){
   if(G.danger>0.01){ const pulse=0.5+0.5*Math.sin(G.t*3.4);
     ctx.strokeStyle='rgba(229,72,77,'+(G.danger*(0.10+0.22*pulse))+')';
     ctx.lineWidth=Math.min(W,H)*0.10; ctx.strokeRect(0,0,W,H); }
+  if(G.champGlow>0.01){ ctx.strokeStyle='rgba(255,206,58,'+(0.5*G.champGlow)+')';
+    ctx.lineWidth=10; ctx.strokeRect(5,5,W-10,H-10); }
 }
 
 function drawSky(){
@@ -1039,6 +1223,7 @@ function drawFaller(f){
   let bg='#fff', icon='🧾', label='';
   if(f.kind==='good'){ bg=GOOD[f.sub].bg; icon=GOOD[f.sub].icon; label=GOOD[f.sub].label; }
   else if(f.kind==='bad'){ bg=BAD[f.sub].bg; icon=BAD[f.sub].icon; label=BAD[f.sub].label; }
+  else if(f.kind==='pingis'){ bg='#FFF4CC'; icon='🏓'; label='Pingis!'; }
   else if(f.kind==='power'){ bg='#0B6E3B'; }
   // hård sticker-skugga + kort med tjock kontur
   ctx.fillStyle='rgba(21,36,27,.28)'; roundRect(-f.w/2+2,-f.h/2+4,f.w,f.h,8); ctx.fill();
@@ -1145,6 +1330,10 @@ function drawPlayer(){
   if(G.auto>0){ ctx.strokeStyle='rgba(63,197,122,.9)'; ctx.lineWidth=3;
     ctx.beginPath(); ctx.arc(x, topY+p.h*0.24, p.w*0.5, 0, 6.28); ctx.stroke();
     ctx.font=(p.h*0.2)+'px system-ui'; ctx.textAlign='center'; ctx.fillText('✨', x+p.w*0.5, topY); }
+  // pingis-champ: gyllene aura
+  if(G.champ>0){ ctx.strokeStyle='rgba(255,206,58,.95)'; ctx.lineWidth=3.5;
+    ctx.beginPath(); ctx.arc(x, topY+p.h*0.24, p.w*0.58, 0, 6.28); ctx.stroke();
+    ctx.font=(p.h*0.2)+'px system-ui'; ctx.textAlign='center'; ctx.fillText('🏓', x-p.w*0.55, topY); }
 }
 
 function drawShards(){
@@ -1195,7 +1384,7 @@ function kd(e){
 function ku(e){ const k=e.key.toLowerCase();
   if(k==='arrowleft'||k==='a') G.keyL=false; if(k==='arrowright'||k==='d') G.keyR=false; }
 function pointer(e){
-  if(G.state!=='playing') return;
+  if(G.state!=='playing' && G.state!=='pingis') return;
   const t=e.touches?e.touches[0]:e; if(!t) return;
   G.pointerX=t.clientX; G.usePointer=true;
 }
